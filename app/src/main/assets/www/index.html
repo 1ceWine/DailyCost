@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#F3F4F7">
+<title>物尽其用</title>
+<link rel="stylesheet" href="style.css">
+<script>
+window.__err = null;
+window.onerror = function (msg, src, line) {
+  window.__err = msg + ' @' + String(src || '').split('/').pop() + ':' + line;
+  try { if (window.Android) window.Android.toast('ERR ' + window.__err); } catch (e) {}
+};
+</script>
+</head>
+<body>
+<div id="app" v-cloak>
+
+  <!-- ========== 明细 ========== -->
+  <section class="page" v-show="tab === 'home'">
+    <header class="appbar">
+      <div class="appbar-main">
+        <h1>物尽其用</h1>
+        <p>{{ items.length }} 件物品 · 在用 {{ activeCount }} 件</p>
+      </div>
+      <button class="icon-btn" :class="{ on: viewScopeActive }" @click="openView" title="视图筛选" aria-label="视图筛选">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 5.5h17l-6.7 7.7v5.3l-3.6 2v-7.3L3.5 5.5Z"/></svg>
+      </button>
+    </header>
+
+    <div class="hero">
+      <div class="hero-glow"></div>
+      <div class="hero-label">总投入</div>
+      <div class="hero-value">{{ money(totalSpent) }}</div>
+      <div class="hero-sub" v-if="totalResale > 0">
+        <span>已回收 <b>{{ money(totalResale) }}</b></span>
+        <span>净投入 <b>{{ money(netSpent) }}</b></span>
+      </div>
+      <div class="hero-stats">
+        <div class="hero-stat amt">
+          <span>每天成本 <em>/天</em></span>
+          <b>{{ money(dailyTotal) }}</b>
+        </div>
+        <div class="hero-sep"></div>
+        <div class="hero-stat num">
+          <span>在用</span>
+          <b>{{ activeCount }}<i>件</i></b>
+        </div>
+        <div class="hero-sep"></div>
+        <div class="hero-stat num">
+          <span>本月新增</span>
+          <b>{{ monthAdded }}<i>件</i></b>
+        </div>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <div class="search">
+        <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input v-model="query" type="search" placeholder="搜索物品或备注" enterkeyhint="search">
+        <button v-if="query" class="clear" @click="query = ''">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+      <button class="sort-btn" @click="openSort()" :title="'排序：' + sortStateText" aria-label="排序方式">
+        <span>{{ sortLabel }}<i class="sort-dir">{{ sortDirArrow }}</i></span>
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg>
+      </button>
+    </div>
+
+    <div class="chips">
+      <button class="chip" :class="{ on: filterCat === null }" @click="clearCat">
+        全部<i>{{ activeCount }}</i>
+      </button>
+      <button v-for="c in usedCategories" :key="c.id" class="chip" :class="{ on: filterCat === c.id }" @click="toggleCat(c.id)">
+        <span class="dot" :style="{ background: c.color }"></span>{{ c.name }}<i>{{ catCount(c.id) }}</i>
+      </button>
+      <button v-if="showExitChip" class="chip exit" :class="{ on: filterCat === 'exited' }" @click="toggleCat('exited')">
+        <span class="dot" style="background:#94A3B8"></span>退环境物品<i>{{ exitedItems.length }}</i>
+      </button>
+    </div>
+
+    <div v-if="viewScopeActive" class="hint view-hint">
+      <span>视图筛选 · {{ viewSummary }} · 命中 {{ filteredItems.length }} 件</span>
+      <button @click="resetView">清除</button>
+    </div>
+
+    <div v-if="!settings.showRetired && retiredHidden > 0" class="hint">
+      已收起 {{ retiredHidden }} 件退环境物品
+      <button @click="setShowRetired(true)">显示</button>
+    </div>
+
+    <div v-if="grouped.length === 0" class="empty">
+      <div class="empty-art">
+        <svg viewBox="0 0 120 120" width="112" height="112" fill="none">
+          <circle cx="60" cy="60" r="52" fill="var(--primary)" opacity=".07"/>
+          <rect x="34" y="42" width="52" height="44" rx="10" stroke="var(--primary)" stroke-width="3" opacity=".55"/>
+          <path d="M46 42v-6a8 8 0 0 1 8-8h12a8 8 0 0 1 8 8v6" stroke="var(--primary)" stroke-width="3" stroke-linecap="round" opacity=".55"/>
+          <path d="M48 62h24M48 72h16" stroke="var(--primary)" stroke-width="3" stroke-linecap="round" opacity=".35"/>
+        </svg>
+      </div>
+      <h3>{{ items.length === 0 ? '还没有记录' : '没有匹配的物品' }}</h3>
+      <p>{{ items.length === 0 ? '点击右下角按钮记下第一件物品' : '换个关键词或分类试试' }}</p>
+    </div>
+
+    <div v-for="g in grouped" :key="g.id" class="group">
+      <div class="group-head">
+        <span class="dot" :style="{ background: g.color }"></span>
+        <span class="group-name">{{ g.name }}</span>
+        <span class="group-count">{{ g.items.length }} 件</span>
+        <span class="group-sum">{{ money(g.sum) }}</span>
+      </div>
+      <div class="list">
+        <div v-for="(it, i) in g.items" :key="it.id" class="row" :class="{ last: i === g.items.length - 1 }" @click="openDetail(it)">
+          <div class="avatar" :style="{ background: hexA(g.color, .14), color: g.color }">
+            <item-icon v-if="it.icon" :name="it.icon" :size="20" :weight="1.9"></item-icon>
+            <template v-else>{{ it.name.slice(0, 1) }}</template>
+          </div>
+          <div class="row-main">
+            <div class="row-name">
+              <span>{{ it.name }}</span>
+              <span class="badge" :class="{ sold: it.exitType === 'sold' }" v-if="it.retiredDate">{{ it.exitType === 'sold' ? '已售出' : '已停用' }}</span>
+            </div>
+            <div class="row-sub">
+              <span class="seg">{{ money(it.price) }}</span>
+              <span class="seg">{{ it.daysHeld }} 天</span>
+              <span class="seg earn" v-if="it.earn > 0">多用 {{ it.extraDays }} 天 · 赚 {{ money(it.earn) }}</span>
+            </div>
+            <div class="row-prog" v-if="it.lifeProgress !== null">
+              <div class="bar">
+                <span class="gain" :class="{ maxed: it.earnRate >= 1 }" v-if="it.barGain > 0" :style="{ width: it.barGain + '%' }"></span>
+                <span :class="{ 'after-gain': it.barGain > 0 }" :style="{ width: it.barBase + '%' }"></span>
+              </div>
+              <em :class="{ done: it.lifeProgress >= 1 }">{{ it.lifeProgress >= 1 ? (it.earnRate > 0 ? '已回本 +' + Math.round(it.earnRate * 100) + '%' : '已回本') : '回本 ' + Math.round(it.lifeProgress * 100) + '%' }}</em>
+            </div>
+          </div>
+          <div class="row-right">
+            <div class="row-daily">{{ money(it.dailyCost) }}</div>
+            <div class="row-unit">每天</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== 统计 ========== -->
+  <section class="page" v-show="tab === 'stats'">
+    <header class="appbar">
+      <div class="appbar-main">
+        <h1>统计</h1>
+        <p>{{ range.summary }}</p>
+      </div>
+    </header>
+
+    <div class="chips period">
+      <button v-for="p in periods" :key="p.key" class="chip" :class="{ on: period === p.key }" @click="pickPeriod(p.key)">
+        {{ p.key === 'custom' && period === 'custom' ? (range.startMonth + '月-' + range.endMonth + '月') : p.label }}
+      </button>
+    </div>
+
+    <div class="hero">
+      <div class="hero-glow"></div>
+      <div class="hero-label">{{ period === 'all' ? '资产总投入' : '区间购入金额' }}</div>
+      <div class="hero-value">{{ money(rangeTotal) }}</div>
+      <div class="hero-stats">
+        <div class="hero-stat num">
+          <span>购入件数</span>
+          <b>{{ rangeItems.length }}<i>件</i></b>
+        </div>
+        <div class="hero-sep"></div>
+        <div class="hero-stat amt">
+          <span>月均购入 <em>/月</em></span>
+          <b>{{ money(rangeTotal / range.months) }}</b>
+        </div>
+        <div class="hero-sep"></div>
+        <div class="hero-stat amt">
+          <span>当前每日 <em>/天</em></span>
+          <b>{{ money(dailyTotal) }}</b>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h3>分类占比</h3>
+        <span class="muted">{{ rangeItems.length }} 件</span>
+      </div>
+      <div v-if="catShare.length === 0" class="empty-mini">该时间范围内暂无购入记录</div>
+      <div v-else class="donut-wrap">
+        <div class="donut">
+          <svg viewBox="0 0 120 120" width="132" height="132">
+            <circle cx="60" cy="60" r="48" fill="none" stroke="var(--surface-2)" stroke-width="13"/>
+            <circle v-for="(s, i) in donutArcs" :key="i" cx="60" cy="60" r="48" fill="none"
+                    :stroke="s.color" stroke-width="13" stroke-linecap="butt"
+                    :stroke-dasharray="s.dash" :stroke-dashoffset="s.offset"
+                    transform="rotate(-90 60 60)"/>
+          </svg>
+          <div class="donut-center">
+            <b>{{ compact(rangeTotal) }}</b>
+            <span>区间投入</span>
+          </div>
+        </div>
+        <div class="legend">
+          <div v-for="(s, i) in catShare.slice(0, 5)" :key="i" class="legend-row">
+            <span class="dot" :style="{ background: s.color }"></span>
+            <div class="legend-name">{{ s.name }}</div>
+            <div class="legend-pct">{{ Math.round(s.ratio * 100) }}%</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h3>购入金额</h3>
+        <span class="tag">{{ granLabel }}</span>
+      </div>
+      <div class="card-sub">
+        <b>{{ money(rangeTotal) }}</b>
+        <span v-if="peak">最高 {{ peak.label }} · {{ money(peak.value) }}</span>
+      </div>
+      <div class="bars chart-touch"
+           @touchstart="chartStart('bar', $event)" @touchmove="chartMove('bar', $event)"
+           @touchend="chartEnd" @touchcancel="chartEnd">
+        <div v-for="(b, i) in bars" :key="i" class="bar-col"
+             :class="{ on: chartTouch.chart === 'bar' && chartTouch.idx === i }">
+          <div class="bar-val">{{ b.value > 0 && (bars.length <= 7 || i === peakIndex) ? compact(b.value) : '' }}</div>
+          <div class="bar-track">
+            <div class="bar-fill" v-if="b.value > 0" :style="{ height: (b.value / maxBar * 100) + '%' }"></div>
+          </div>
+          <div class="bar-label">{{ b.show ? b.label : '' }}</div>
+        </div>
+        <div v-if="chartTouch.chart === 'bar' && chartTip" class="chart-tip" :style="chartTipStyle">
+          <span>{{ chartTip.label }}</span>
+          <b>{{ chartTip.value }}<i v-if="chartTip.unit">{{ chartTip.unit }}</i></b>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h3>每天成本走势</h3>
+        <span class="tag">{{ granLabel }}</span>
+      </div>
+      <div class="card-sub">
+        <span>每{{ unitWord }}末在用物品的每天成本合计</span>
+        <b class="accent">今天 {{ money(dailyTotal) }}/天</b>
+      </div>
+      <div class="line-wrap">
+        <div class="line-yaxis" :style="{ width: lineAxisW + 'px' }">
+          <span v-for="(t, i) in lineYLabels" :key="i">{{ t }}</span>
+        </div>
+        <div class="line-plot chart-touch"
+             @touchstart="chartStart('line', $event)" @touchmove="chartMove('line', $event)"
+             @touchend="chartEnd" @touchcancel="chartEnd">
+          <svg v-viewbox="'0 0 320 130'" class="line-svg">
+            <defs>
+              <linearGradient id="lg" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="var(--primary)" stop-opacity=".28"/>
+                <stop offset="100%" stop-color="var(--primary)" stop-opacity="0"/>
+              </linearGradient>
+            </defs>
+            <line v-for="(y, i) in lineGridY" :key="i" x1="0" :y1="y" x2="320" :y2="y" stroke="var(--line)" stroke-width="1"/>
+            <path :d="lineArea" fill="url(#lg)"/>
+            <path :d="linePath" fill="none" stroke="var(--primary)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
+            <line v-if="lineTouchPoint" :x1="lineTouchPoint.x" :x2="lineTouchPoint.x"
+                  :y1="lineGridY[0]" :y2="lineGridY[lineGridY.length - 1]"
+                  stroke="var(--primary)" stroke-opacity=".5" stroke-width="1" stroke-dasharray="4 4"
+                  vector-effect="non-scaling-stroke"/>
+          </svg>
+          <div v-if="lineTouchPoint" class="chart-dot"
+               :style="{ left: (lineTouchPoint.x / 3.2) + '%', top: lineTouchPoint.y + 'px' }"></div>
+          <div v-if="chartTouch.chart === 'line' && chartTip" class="chart-tip" :style="chartTipStyle">
+            <span>{{ chartTip.label }}</span>
+            <b>{{ chartTip.value }}<i v-if="chartTip.unit">{{ chartTip.unit }}</i></b>
+          </div>
+          <div class="line-xaxis">
+            <span v-for="(l, i) in lineLabels" :key="i" :class="l.pos" :style="{ left: l.pct + '%' }">{{ l.text }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" v-if="topDaily.length">
+      <div class="card-head">
+        <h3>日均最贵 Top 5</h3>
+        <span class="muted">全部时间</span>
+      </div>
+      <div class="rank" v-for="(it, i) in topDaily" :key="it.id">
+        <span class="rank-no" :class="{ top: i < 3 }">{{ i + 1 }}</span>
+        <div class="rank-main">
+          <div class="rank-name">{{ it.name }}</div>
+          <div class="rank-sub">{{ catName(it.categoryId) }} · 用了 {{ it.daysHeld }} 天</div>
+        </div>
+        <div class="rank-val">{{ money(it.dailyCost) }}<i>/天</i></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== 设置 ========== -->
+  <section class="page" v-show="tab === 'settings'">
+    <header class="appbar">
+      <div class="appbar-main">
+        <h1>设置</h1>
+        <p>外观、数据与分类</p>
+      </div>
+    </header>
+
+    <div class="card">
+      <h3 class="card-title">外观</h3>
+      <div class="setting-row">
+        <span>主题色</span>
+        <div class="swatches">
+          <button v-for="(a, i) in accents" :key="i" class="swatch" :style="{ background: a.c }"
+                  :class="{ on: settings.accent === i }" @click="setAccent(i)">
+            <svg v-if="settings.accent === i" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5L19 7"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="setting-row">
+        <span>显示模式</span>
+        <div class="segment">
+          <button v-for="(m, i) in darkModes" :key="i" :class="{ on: settings.darkMode === i }" @click="setDark(i)">{{ m }}</button>
+        </div>
+      </div>
+      <div class="setting-row">
+        <span>货币符号</span>
+        <div class="segment">
+          <button v-for="c in currencies" :key="c" :class="{ on: settings.currency === c }" @click="setCurrency(c)">{{ c }}</button>
+        </div>
+      </div>
+      <div class="setting-row">
+        <span>明细显示退环境物品</span>
+        <button class="switch" :class="{ on: settings.showRetired }" @click="setShowRetired(!settings.showRetired)"><i></i></button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3 class="card-title">数据</h3>
+      <button class="list-btn" @click="importCsv">
+        <span class="list-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 21h16"/></svg></span>
+        导入 CSV
+        <small>名称,价格,日期,分类</small>
+      </button>
+      <button class="list-btn" @click="exportCsv">
+        <span class="list-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 21V9m0 0 4 4m-4-4-4 4M4 3h16"/></svg></span>
+        导出 CSV
+      </button>
+      <button class="list-btn" @click="exportBackup">
+        <span class="list-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7v13h16V7M9 7V4h6v3M12 11v5m0 0 2-2m-2 2-2-2"/></svg></span>
+        导出备份
+        <small>含分类与设置</small>
+      </button>
+      <button class="list-btn" @click="restoreBackup">
+        <span class="list-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7v13h16V7M12 16v-5m0 0 2 2m-2-2-2 2"/></svg></span>
+        从备份恢复
+      </button>
+      <button class="list-btn" @click="openBatch">
+        <span class="list-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></span>
+        批量修改物品
+        <small>搜索 / 改分类 / 删除</small>
+      </button>
+    </div>
+
+    <div class="card">
+      <h3 class="card-title">帮助</h3>
+      <button class="list-btn" @click="helpOpen = true">
+        <span class="list-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5v14zM4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"/></svg></span>
+        使用说明
+        <small>功能介绍 · 回本逻辑</small>
+      </button>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h3 class="card-title">分类管理</h3>
+        <button class="text-btn" @click="addCategoryPrompt">新增</button>
+      </div>
+      <p class="card-note">排序决定记一笔时分类的显示顺序</p>
+      <div v-for="(c, i) in categories" :key="c.id" class="cat-row">
+        <span class="dot" :style="{ background: c.color }"></span>
+        <span class="cat-name">{{ c.name }}</span>
+        <span class="cat-count">{{ catCount(c.id) }}</span>
+        <button class="mini-btn" :disabled="i === 0" @click="moveCat(c.id, -1)">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="m6 15 6-6 6 6"/></svg>
+        </button>
+        <button class="mini-btn" :disabled="i === categories.length - 1" @click="moveCat(c.id, 1)">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg>
+        </button>
+        <button class="mini-btn danger" :disabled="categories.length <= 1" @click="askDeleteCat(c)">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M9 7V4h6v3m-8 0 1 13h8l1-13"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <p class="about">物尽其用 · 数据仅保存在本机<br>把每一件东西用到底，才知道它值不值</p>
+    <div class="app-credit">
+      <span>Powered By Ding</span>
+      <small>v1.0</small>
+    </div>
+  </section>
+
+  <!-- ========== 底部导航 ========== -->
+  <nav class="tabbar">
+    <button :class="{ on: tab === 'home' }" @click="tab = 'home'">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>
+      <span>明细</span>
+    </button>
+    <button :class="{ on: tab === 'stats' }" @click="tab = 'stats'">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 20V10M12 20V4M19 20v-6"/></svg>
+      <span>统计</span>
+    </button>
+    <button :class="{ on: tab === 'settings' }" @click="tab = 'settings'">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+      <span>设置</span>
+    </button>
+  </nav>
+
+  <button class="fab" v-show="tab === 'home'" @click="openEditor(null)">
+    <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+  </button>
+
+  <!-- ========== 详情弹层 ========== -->
+  <transition name="ov" :duration="280">
+  <div class="sheet-mask" v-if="detail" @click="maskTap() && closeDetail()" @touchstart="maskDown" @touchmove="maskMove">
+    <div class="sheet" @click.stop>
+      <div class="grabber"></div>
+      <div class="detail-top">
+        <div class="avatar big" :style="{ background: hexA(detailColor, .14), color: detailColor }">
+          <item-icon v-if="detail.icon" :name="detail.icon" :size="23" :weight="1.9"></item-icon>
+          <template v-else>{{ detail.name.slice(0, 1) }}</template>
+        </div>
+        <div class="detail-title">
+          <h2>{{ detail.name }}</h2>
+          <p>{{ detailCat }} · {{ detail.retiredDate ? (detail.exitType === 'sold' ? '已售出' : '已停用') : '在用' }}</p>
+        </div>
+      </div>
+
+      <div class="detail-daily">
+        <div>
+          <span>当前每天成本</span>
+          <b>{{ money(detail.dailyCost) }}<i>/天</i></b>
+        </div>
+        <div class="detail-nums">
+          <div><span>价格</span><b>{{ money(detail.price) }}</b></div>
+          <div v-if="detail.exitType === 'sold' && detail.resalePrice"><span>售出价</span><b class="gain">-{{ money(detail.resalePrice) }}</b></div>
+          <div><span>持有</span><b>{{ detail.daysHeld }} 天</b></div>
+        </div>
+      </div>
+
+      <div class="detail-chart">
+        <div class="detail-chart-head">
+          <span>日均成本走势</span>
+          <span class="muted">第 1 天 {{ money(detail.price) }} → 现在 {{ money(detail.dailyCost) }}</span>
+        </div>
+        <div class="detail-plot chart-touch"
+             @touchstart="chartStart('detail', $event)" @touchmove="chartMove('detail', $event)"
+             @touchend="chartEnd" @touchcancel="chartEnd">
+          <svg v-viewbox="'0 0 300 92'" class="detail-svg">
+            <defs>
+              <linearGradient id="dg" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="var(--primary)" stop-opacity=".26"/>
+                <stop offset="100%" stop-color="var(--primary)" stop-opacity="0"/>
+              </linearGradient>
+            </defs>
+            <line v-for="(y, i) in detail.gridY" :key="'g' + i" :x1="detail.axisX" :y1="y" x2="296" :y2="y" stroke="var(--line)" stroke-width="1" stroke-dasharray="3 4"/>
+            <text v-for="(t, i) in detail.yLabels" :key="'y' + i" :x="detail.axisX - 4" :y="detail.labelY[i]" text-anchor="end" class="ylab">{{ t }}</text>
+            <path :d="detail.detailArea" fill="url(#dg)"/>
+            <path :d="detail.detailLine" fill="none" stroke="var(--primary)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
+            <line v-if="detailTouchPoint" :x1="detailTouchPoint.x" :x2="detailTouchPoint.x"
+                  :y1="detail.gridY[0]" :y2="detail.gridY[detail.gridY.length - 1]"
+                  stroke="var(--primary)" stroke-opacity=".5" stroke-width="1" stroke-dasharray="4 4"
+                  vector-effect="non-scaling-stroke"/>
+          </svg>
+          <div v-if="detailTouchPoint" class="chart-dot"
+               :style="{ left: (detailTouchPoint.x / 3) + '%', top: detailTouchPoint.y + 'px' }"></div>
+          <div v-if="chartTouch.chart === 'detail' && chartTip" class="chart-tip" :style="chartTipStyle">
+            <span>{{ chartTip.label }}</span>
+            <b>{{ chartTip.value }}<i v-if="chartTip.unit">{{ chartTip.unit }}</i></b>
+          </div>
+        </div>
+        <div class="detail-xaxis">
+          <span>{{ detail.xStart }}</span>
+          <span>{{ detail.xEnd }}</span>
+        </div>
+      </div>
+
+      <div class="detail-grid">
+        <div class="tap-cell" @click="tapPurchase"><span>购买日期</span><b>{{ niceDate(detail.purchaseDate) }}</b></div>
+        <div><span>日均（30 天前）</span><b>{{ money(dailyAt(detail, 30)) }}</b></div>
+        <div class="tap-cell" @click="!lifeEdit && editLifeStart()">
+          <span>预期使用</span>
+          <b v-if="!lifeEdit">{{ detail.lifeDays ? detail.lifeDays + ' 天' : '未设置' }}<em v-if="lifeYears(detail.lifeDays)" class="life-years">≈ {{ lifeYears(detail.lifeDays) }}</em></b>
+          <div class="life-edit" v-else @click.stop>
+            <input ref="lifeInput" v-model="lifeDraft" type="number" inputmode="numeric" placeholder="天数" @keyup.enter="editLifeSave">
+            <button class="life-ok" @click="editLifeSave">确定</button>
+          </div>
+        </div>
+        <div v-if="detail.exitType === 'sold' && detail.resalePrice"><span>净投入</span><b>{{ money(Math.max(0, detail.price - detail.resalePrice)) }}</b></div>
+        <div v-if="detail.lifeProgress !== null">
+          <span>回本进度</span>
+          <b>{{ detail.lifeProgress >= 1 ? '已回本' + (detail.earnRate > 0 ? ' +' + Math.round(detail.earnRate * 100) + '%' : '') : Math.round(detail.lifeProgress * 100) + '%' }}</b>
+          <i v-if="detail.earn > 0">多用 {{ detail.extraDays }} 天 · 赚 {{ money(detail.earn) }}</i>
+        </div>
+      </div>
+      <div class="detail-note" v-if="detail.note">{{ detail.note }}</div>
+
+      <!-- 直接出售 -->
+      <div class="detail-sell" v-if="sellOpen">
+        <div class="detail-sell-head">
+          <span>出售「{{ detail.name }}」</span>
+          <button class="text-btn" @click="closeSell">取消</button>
+        </div>
+        <label class="field">
+          <span>售出价格 <i>二手回收价，将从成本中抵扣</i></span>
+          <input v-model="sellPrice" type="text" inputmode="decimal" placeholder="0.00">
+        </label>
+        <div class="field">
+          <span>售出日期</span>
+          <date-field v-model="sellDate" :min="detail.purchaseDate"></date-field>
+        </div>
+        <button class="primary-btn full" @click="doSell">确认出售</button>
+      </div>
+
+      <div class="detail-actions">
+        <div class="action-row">
+          <template v-if="!detail.retiredDate">
+            <button class="ghost-btn" @click="retire(detail)">停用</button>
+            <button class="ghost-btn" @click="openSell(detail)">出售</button>
+          </template>
+          <template v-else>
+            <button class="ghost-btn" @click="restore(detail)">恢复在用</button>
+            <button class="ghost-btn" v-if="detail.exitType === 'sold'" @click="openSell(detail)">修改售价</button>
+          </template>
+        </div>
+        <div class="action-row split-4">
+          <button class="primary-btn" @click="openEditor(detail)">编辑</button>
+          <button class="ghost-btn danger" @click="askDeleteItem(detail)">删除</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  </transition>
+
+  <!-- ========== 编辑弹层 ========== -->
+  <transition name="ov" :duration="280">
+  <div class="sheet-mask" v-if="editor" @click="maskTap() && closeEditor()" @touchstart="maskDown" @touchmove="maskMove">
+    <div class="sheet tall" @click.stop>
+      <div class="grabber"></div>
+      <div class="editor-head">
+        <button class="text-btn" @click="closeEditor">取消</button>
+        <h2>{{ editor.id ? '编辑物品' : '记一笔' }}</h2>
+        <button class="text-btn strong" @click="saveEditor">保存</button>
+      </div>
+
+      <div class="form">
+        <label class="field">
+          <span>名称</span>
+          <input v-model="editor.name" placeholder="例如 iPhone 15、跑鞋" maxlength="40">
+        </label>
+        <label class="field">
+          <span>价格</span>
+          <div class="price-input">
+            <i>{{ settings.currency }}</i>
+            <input v-model="editor.price" type="text" inputmode="decimal" placeholder="0.00">
+          </div>
+        </label>
+        <div class="field">
+          <span>购买日期</span>
+          <date-field v-model="editor.date" placeholder="选择购买日期"></date-field>
+        </div>
+
+        <div class="field">
+          <span>分类</span>
+          <div class="cat-picker">
+            <button v-for="c in categories" :key="c.id" class="cat-pill" :class="{ on: editor.categoryId === c.id }" @click="editor.categoryId = c.id">
+              <span class="dot" :style="{ background: c.color }"></span>{{ c.name }}
+            </button>
+            <button class="cat-pill add" @click="addCategoryFromEditor">+ 新建</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <span>图标 <i>可选 · 不选用名称首字</i></span>
+          <div class="icon-pick">
+            <div class="icon-tabs">
+              <button type="button" class="icon-tab" :class="{ on: iconGroup === 'all' }" @click="iconGroup = 'all'">全部</button>
+              <button type="button" v-for="g in iconGroups" :key="g.k" class="icon-tab" :class="{ on: iconGroup === g.k }" @click="iconGroup = g.k">{{ g.n }}</button>
+            </div>
+            <div class="icon-grid">
+              <button type="button" class="icon-opt aa" :class="{ on: !editor.icon }" @click="editor.icon = ''">Aa</button>
+              <button type="button" v-for="ic in iconList" :key="ic.k" class="icon-opt" :class="{ on: editor.icon === ic.k }" @click="editor.icon = ic.k">
+                <item-icon :name="ic.k" :size="19"></item-icon>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <label class="field">
+          <span>备注 <i>可选</i></span>
+          <input v-model="editor.note" placeholder="为什么买、用得怎么样" maxlength="60">
+        </label>
+        <label class="field">
+          <span>预期使用天数 <i>可选</i></span>
+          <input v-model="editor.lifeDays" type="number" inputmode="numeric" placeholder="例如 730">
+        </label>
+        <div class="field" v-if="editor.id">
+          <span>状态</span>
+          <div class="segment">
+            <button type="button" :class="{ on: editor.exitType === 'active' }" @click="editor.exitType = 'active'">在用</button>
+            <button type="button" :class="{ on: editor.exitType === 'retired' }" @click="editor.exitType = 'retired'">已停用</button>
+            <button type="button" :class="{ on: editor.exitType === 'sold' }" @click="editor.exitType = 'sold'">已售出</button>
+          </div>
+        </div>
+        <div class="field" v-if="editor.id && editor.exitType !== 'active'">
+          <span>{{ editor.exitType === 'sold' ? '售出日期' : '停用日期' }} <i>默认今天</i></span>
+          <date-field v-model="editor.retiredDate" :min="editor.date" placeholder="选择日期"></date-field>
+        </div>
+        <label class="field" v-if="editor.id && editor.exitType === 'sold'">
+          <span>售出价格 <i>二手回收价，将抵扣成本</i></span>
+          <input v-model="editor.resale" type="text" inputmode="decimal" placeholder="0.00">
+        </label>
+      </div>
+    </div>
+  </div>
+  </transition>
+
+  <!-- ========== 视图筛选 ========== -->
+  <transition name="ov" :duration="280">
+  <div class="sheet-mask" v-if="viewOpen" @click="maskTap() && closeView()" @touchstart="maskDown" @touchmove="maskMove">
+    <div class="sheet view-sheet" @click.stop>
+      <div class="grabber"></div>
+      <div class="editor-head">
+        <button class="text-btn" @click="resetView">重置</button>
+        <h2>视图筛选</h2>
+        <button class="text-btn strong" @click="closeView">完成</button>
+      </div>
+
+      <div class="view-block">
+        <div class="view-block-head"><span>显示状态</span><small>{{ viewStatusText }}</small></div>
+        <div class="segment view-seg">
+          <button :class="{ on: viewStatus === 'all' }" @click="setViewStatus('all')">全部</button>
+          <button :class="{ on: viewStatus === 'active' }" @click="setViewStatus('active')">在用</button>
+          <button :class="{ on: viewStatus === 'exited' }" @click="setViewStatus('exited')">退环境</button>
+        </div>
+      </div>
+
+      <div class="view-block">
+        <div class="view-block-head"><span>回本状态</span><small>{{ viewEarnText }}</small></div>
+        <div class="segment view-seg">
+          <button :class="{ on: viewEarn === 'all' }" @click="setViewEarn('all')">全部</button>
+          <button :class="{ on: viewEarn === 'unearned' }" @click="setViewEarn('unearned')">回本中</button>
+          <button :class="{ on: viewEarn === 'earned' }" @click="setViewEarn('earned')">已回本</button>
+        </div>
+      </div>
+
+      <div class="view-block">
+        <div class="view-block-head"><span>分类</span><small>{{ viewCatText }}</small></div>
+        <div class="chips view-cats">
+          <button class="chip" :class="{ on: filterCat === null }" @click="clearCat">全部</button>
+          <button v-for="c in usedCategories" :key="c.id" class="chip" :class="{ on: filterCat === c.id }" @click="toggleCat(c.id)">
+            <span class="dot" :style="{ background: c.color }"></span>{{ c.name }}<i>{{ catCount(c.id) }}</i>
+          </button>
+          <button v-if="showExitChip" class="chip exit" :class="{ on: filterCat === 'exited' }" @click="toggleCat('exited')">
+            <span class="dot" style="background:#94A3B8"></span>退环境物品
+          </button>
+        </div>
+      </div>
+
+      <p class="view-foot-note">当前显示 {{ filteredItems.length }} 件 · 筛选只改变查看范围，不会改动或删除物品，导出与备份始终是完整数据</p>
+
+      <div class="view-foot">
+        <button class="view-batch-btn" @click="openBatchFromView">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 6.5l2 2 3-3M3.5 13l2 2 3-3M3.5 19.5l2 2 3-3M11 7h9M11 13.5h9M11 20h9"/></svg>
+          批量修改清单
+        </button>
+      </div>
+    </div>
+  </div>
+  </transition>
+
+  <!-- ========== 排序方式 ========== -->
+  <transition name="ov" :duration="280">
+  <div class="sheet-mask" v-if="sortOpen" @click="maskTap() && closeSort()" @touchstart="maskDown" @touchmove="maskMove">
+    <div class="sheet sort-sheet" @click.stop>
+      <div class="grabber"></div>
+      <div class="editor-head">
+        <h2>排序方式</h2>
+        <button class="text-btn strong" @click="closeSort">完成</button>
+      </div>
+
+      <div class="sort-opts">
+        <button v-for="(s, i) in sorts" :key="s.key" class="sort-opt" :class="{ on: sortIdx === i }" @click="setSort(i)">
+          <span class="sort-opt-main">
+            <b>{{ s.label }}</b>
+            <small>{{ s.hint }}</small>
+          </span>
+          <span class="sort-opt-check">
+            <svg v-viewbox="'0 0 24 24'" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+          </span>
+        </button>
+      </div>
+
+      <div class="sort-dir-box">
+        <div class="sort-dir-head">
+          <span>排列顺序</span>
+          <small>{{ sortStateText }}</small>
+        </div>
+        <div class="segment sort-seg">
+          <button :class="{ on: sortDesc }" @click="setSortDesc(true)">降序 ↓</button>
+          <button :class="{ on: !sortDesc }" @click="setSortDesc(false)">升序 ↑</button>
+        </div>
+      </div>
+      <p class="sort-foot">选择即时生效，并随数据一起保存</p>
+    </div>
+  </div>
+  </transition>
+
+  <!-- ========== 批量删除 ========== -->
+  <transition name="ov" :duration="280">
+  <div class="sheet-mask" v-if="batchOpen" @click="maskTap() && closeBatch()" @touchstart="maskDown" @touchmove="maskMove">
+    <div class="sheet tall batch" @click.stop>
+      <div class="grabber"></div>
+      <div class="editor-head">
+        <button class="text-btn" @click="closeBatch">取消</button>
+        <h2>批量修改</h2>
+        <button class="text-btn strong" @click="toggleSelectAll">{{ allSelected ? '取消全选' : '全选' }}</button>
+      </div>
+
+      <div class="batch-tools">
+        <div class="search batch-search">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input v-model="batchQuery" type="search" placeholder="在清单里搜索物品" enterkeyhint="search">
+          <button v-if="batchQuery" class="clear" @click="batchQuery = ''">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+          </button>
+        </div>
+        <div class="batch-quick">
+          <button class="text-btn" :disabled="!filterActive" @click="selectFiltered">
+            {{ filterActive ? '选中主页筛选结果 ' + filteredItems.length + ' 件' : '主页未筛选' }}
+          </button>
+          <button class="text-btn" v-if="batchSel.length" @click="batchSel = []; catMoveOpen = false">清空选择</button>
+        </div>
+      </div>
+
+      <p class="batch-hint">
+        已选 {{ batchSel.length }} 件<span v-if="batchItems.length"> · 当前显示 {{ batchItems.length }} 件</span> · 可批量改分类或删除
+      </p>
+
+      <div class="batch-list">
+        <button type="button" class="batch-row" v-for="it in batchItems" :key="it.id" @click="togglePick(it.id)">
+          <span class="avatar" :style="{ background: hexA(catColorOf(it.categoryId), .14), color: catColorOf(it.categoryId) }">
+            <item-icon v-if="it.icon" :name="it.icon" :size="20" :weight="1.9"></item-icon>
+            <template v-else>{{ it.name.slice(0, 1) }}</template>
+          </span>
+          <span class="batch-main">
+            <span class="batch-name">{{ it.name }}<span class="badge" :class="{ sold: it.exitType === 'sold' }" v-if="it.retiredDate">{{ it.exitType === 'sold' ? '已售出' : '已停用' }}</span></span>
+            <span class="batch-sub">{{ money(it.price) }} · {{ it.daysHeld }} 天</span>
+          </span>
+          <span class="ck" :class="{ on: batchSel.includes(it.id) }">
+            <svg v-viewbox="'0 0 24 24'" width="13" height="13" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+          </span>
+        </button>
+        <p class="empty-mini" v-if="!batchItems.length">{{ batchQuery ? '没有匹配的物品' : '还没有任何物品' }}</p>
+      </div>
+
+      <div class="batch-move" v-if="catMoveOpen">
+        <p class="batch-move-label">将选中的 {{ batchSel.length }} 件物品移到：</p>
+        <div class="chips move-chips">
+          <button v-for="c in categories" :key="c.id" class="chip" @click="batchMove(c.id)">
+            <span class="dot" :style="{ background: c.color }"></span>{{ c.name }}<i v-if="catCount(c.id)">{{ catCount(c.id) }}</i>
+          </button>
+        </div>
+      </div>
+
+      <div class="batch-actions">
+        <button class="primary-btn batch-ghost" :disabled="!batchSel.length" @click="catMoveOpen = !catMoveOpen">
+          {{ catMoveOpen ? '收起分类' : '改分类' }}
+        </button>
+        <button class="primary-btn danger" :disabled="!batchSel.length" @click="askBatchDelete" :aria-label="batchSel.length ? '删除选中 ' + batchSel.length + ' 件' : '删除'">
+          {{ batchSel.length ? '删除 ' + batchSel.length : '删除' }}
+        </button>
+      </div>
+    </div>
+  </div>
+  </transition>
+
+  <!-- ========== 通用确认框 ========== -->
+  <transition name="ov" :duration="280">
+  <div class="dialog-mask" v-if="confirm" @click="maskTap() && (confirm = null)" @touchstart="maskDown" @touchmove="maskMove">
+    <div class="dialog" @click.stop>
+      <h3>{{ confirm.title }}</h3>
+      <p>{{ confirm.text }}</p>
+      <div class="dialog-actions">
+        <button class="text-btn" @click="confirm = null">取消</button>
+        <button class="text-btn strong" :class="{ danger: confirm.danger }" @click="confirm.run(); confirm = null">{{ confirm.ok }}</button>
+      </div>
+    </div>
+  </div>
+  </transition>
+
+  <input ref="fileInput" type="file" accept=".csv,text/csv,.json,application/json" hidden @change="onFilePicked">
+
+  <div class="toast" v-if="toast">{{ toast }}</div>
+
+  <!-- ========== 使用说明 ========== -->
+  <transition name="ov" :duration="280">
+  <div class="sheet-mask" v-if="helpOpen" @click="maskTap() && (helpOpen = false)" @touchstart="maskDown" @touchmove="maskMove">
+    <div class="sheet tall" @click.stop>
+      <div class="grabber"></div>
+      <div class="help-head">
+        <h3>使用说明</h3>
+        <button class="text-btn" @click="helpOpen = false">关闭</button>
+      </div>
+      <div class="help-body">
+        <div v-for="(s, i) in helpSections" :key="i" class="help-sec" :class="{ open: helpTab === i }">
+          <button class="help-t" @click="helpTab = helpTab === i ? -1 : i">
+            <b>{{ i + 1 }}. {{ s.t }}</b>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          <ul v-show="helpTab === i">
+            <li v-for="(p, j) in s.items" :key="j">{{ p }}</li>
+          </ul>
+        </div>
+        <p class="help-foot">净成本 = 购入价 − 售出二手价（未售出即购入价）</p>
+      </div>
+    </div>
+  </div>
+  </transition>
+</div>
+
+  <script src="vue.global.prod.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

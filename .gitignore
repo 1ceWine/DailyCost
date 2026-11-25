@@ -1,0 +1,24 @@
+# ==== 绝不入库：签名密钥与个人数据 ====
+signing/
+keystore.properties
+安装包/
+
+# ==== 构建产物 ====
+.gradle/
+.kotlin/
+build/
+app/build/
+local.properties
+*.apk
+
+# ==== 本地测试与素材 ====
+.test/
+图标候选/
+图标评审/
+
+# ==== IDE / 系统 ====
+.idea/
+*.iml
+.vscode/
+.DS_Store
+Thumbs.db
