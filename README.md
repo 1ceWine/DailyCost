@@ -19,13 +19,6 @@
 - **深色模式**：跟随系统或手动切换，主题色可换
 - **备份**：一键导出 / 导入 JSON，数据完全本地，不上传任何服务器
 
-## 技术栈
-
-- 原生 Android 壳（Kotlin）+ WebView 加载本地 `assets/www`
-- 前端：Vue 3（离线打包，无构建步骤）+ 原生 CSS，全部资源自适应屏幕尺寸
-- 数据：`SharedPreferences` JSON 序列化，结构向后兼容
-- 图标：Y2K 像素金币，代码逐格绘制，附完整 adaptive icon 分层
-
 ## 构建
 
 ```bash
